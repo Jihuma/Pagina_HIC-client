@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body{
+    background-color: #e6e6ff;
+    width: 100vw;
+    overflow-x: hidden;
+    font-family: "Monstserrat", sans-serif;
+}
+
+head{
+    background-color: #3333cc;
+    color: white;
+    padding: 20px;
+    text-align: center;
+}
+
+.ql-editor img,
+.post-content img {
+  max-width: 100%;
+  height: auto;
+  max-height: 400px; /* o cualquier valor razonable */
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.animatedButton{
+    animation-duration: 10000ms;
+}
+
+.ql-container{
+    border: none !important;
+}.ql-toolbar{
+    border: none !important;
+}
+.ql-editor{
+    border: none !important;
+}
+
+/* Estilos para alineación de imágenes en el contenido del post */
+.post-content .ql-align-left,
+.post-content p[style*="text-align: left"],
+.post-content .ql-align-left img,
+.post-content p[style*="text-align: left"] img {
+  display: block !important;
+  margin-right: auto !important;
+  margin-left: 0 !important;
+  text-align: left !important;
+}
+
+.post-content .ql-align-center,
+.post-content p[style*="text-align: center"],
+.post-content .ql-align-center img,
+.post-content p[style*="text-align: center"] img {
+  display: block !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  text-align: center !important;
+}
+
+.post-content .ql-align-right,
+.post-content p[style*="text-align: right"],
+.post-content .ql-align-right img,
+.post-content p[style*="text-align: right"] img {
+  display: block !important;
+  margin-left: auto !important;
+  margin-right: 0 !important;
+  text-align: right !important;
+}
+
