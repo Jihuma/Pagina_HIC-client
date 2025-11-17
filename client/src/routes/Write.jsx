@@ -12,6 +12,223 @@ import Footer from "../components/Footer"
 import Picker from 'emoji-picker-react'; 
 import Confetti from "../components/Confetti" 
 
+const ImageResizeModal = ({ isOpen, onClose, onInsert, uploadedImage, setUploadedImage }) => {
+  const [width, setWidth] = useState('');
+  const [height, setHeight] = useState('');
+  const [maintainAspectRatio, setMaintainAspectRatio] = useState(true);
+  const [aspectRatio, setAspectRatio] = useState(null);
+  const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    if (uploadedImage) {
+      const img = new Image();
+      img.onload = () => {
+        setAspectRatio(img.width / img.height);
+        setWidth(img.width.toString());
+        setHeight(img.height.toString());
+      };
+      img.src = uploadedImage;
+    }
+  }, [uploadedImage]);
+
+  const handleWidthChange = (e) => {
+    const newWidth = e.target.value;
+    setWidth(newWidth);
+    
+    if (maintainAspectRatio && aspectRatio && newWidth) {
+      const calculatedHeight = Math.round(newWidth / aspectRatio);
+      setHeight(calculatedHeight.toString());
+    }
+  };
+
+  const handleHeightChange = (e) => {
+    const newHeight = e.target.value;
+    setHeight(newHeight);
+    
+    if (maintainAspectRatio && aspectRatio && newHeight) {
+      const calculatedWidth = Math.round(newHeight * aspectRatio);
+      setWidth(calculatedWidth.toString());
+    }
+  };
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (file && file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setUploadedImage(event.target.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleInsert = () => {
+    if (uploadedImage && width && height) {
+      onInsert({
+        url: uploadedImage,
+        width: parseInt(width),
+        height: parseInt(height)
+      });
+      handleClose();
+    }
+  };
+
+  const handleClose = () => {
+    setWidth('');
+    setHeight('');
+    setMaintainAspectRatio(true);
+    setAspectRatio(null);
+    setUploadedImage(null);
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-6 border-b">
+          <h2 className="text-2xl font-bold text-gray-800">Insertar y redimensionar imagen</h2>
+          <button onClick={handleClose} className="text-gray-500 hover:text-gray-700 transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="p-6 space-y-6">
+          {!uploadedImage ? (
+            <div 
+              onClick={() => fileInputRef.current?.click()}
+              className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-all"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto mb-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+              <p className="text-gray-600 mb-2">Haz clic para seleccionar una imagen</p>
+              <p className="text-sm text-gray-500">JPG, PNG, GIF hasta 10MB</p>
+              <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileSelect} className="hidden" />
+            </div>
+          ) : (
+            <>
+              <div className="space-y-3">
+                <label className="block text-sm font-medium text-gray-700">Vista Previa</label>
+                <div className="border rounded-lg p-4 bg-gray-50 flex justify-center">
+                  <img
+                    src={uploadedImage}
+                    alt="Preview"
+                    style={{
+                      maxWidth: '100%',
+                      maxHeight: '300px',
+                      width: width ? `${width}px` : 'auto',
+                      height: height ? `${height}px` : 'auto',
+                      objectFit: maintainAspectRatio ? 'contain' : 'fill'
+                    }}
+                    className="rounded"
+                  />
+                </div>
+                <button onClick={() => fileInputRef.current?.click()} className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  Cambiar imagen
+                </button>
+                <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileSelect} className="hidden" />
+              </div>
+
+              <div className="space-y-4">
+                <label className="block text-sm font-medium text-gray-700">Dimensiones (píxeles)</label>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">Ancho</label>
+                    <input
+                      type="number"
+                      value={width}
+                      onChange={handleWidthChange}
+                      placeholder="Ancho"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      min="1"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">Alto</label>
+                    <input
+                      type="number"
+                      value={height}
+                      onChange={handleHeightChange}
+                      placeholder="Alto"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      min="1"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="aspectRatio"
+                    checked={maintainAspectRatio}
+                    onChange={(e) => setMaintainAspectRatio(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  />
+                  <label htmlFor="aspectRatio" className="text-sm text-gray-700">
+                    Mantener proporción de aspecto
+                  </label>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-xs text-gray-600">Tamaños preestablecidos</label>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { label: 'Pequeño', width: 300 },
+                      { label: 'Mediano', width: 600 },
+                      { label: 'Grande', width: 900 },
+                      { label: 'Original', width: null }
+                    ].map((preset) => (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => {
+                          if (preset.width && aspectRatio) {
+                            setWidth(preset.width.toString());
+                            setHeight(Math.round(preset.width / aspectRatio).toString());
+                          } else if (!preset.width) {
+                            const img = new Image();
+                            img.onload = () => {
+                              setWidth(img.width.toString());
+                              setHeight(img.height.toString());
+                            };
+                            img.src = uploadedImage;
+                          }
+                        }}
+                        className="px-3 py-1 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-3 p-6 border-t bg-gray-50">
+          <button onClick={handleClose} className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors">
+            Cancelar
+          </button>
+          <button
+            onClick={handleInsert}
+            disabled={!uploadedImage || !width || !height}
+            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+          >
+            Insertar Imagen
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const Write = () => {
 
@@ -27,6 +244,8 @@ const Write = () => {
   const [desc, setDesc] = useState('');
   const [category, setCategory] = useState(''); 
   const confetti = Confetti(); 
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [uploadedImageForResize, setUploadedImageForResize] = useState(null);
 
   // Añadir esta consulta para obtener las categorías
 const {
@@ -61,6 +280,34 @@ useEffect(() => {
         ['clean']
       ],
     },
+  };
+
+  const handleInsertResizedImage = (imageData) => {
+    const editor = quillRef.current?.getEditor();
+    if (editor) {
+      const range = editor.getSelection(true);
+      editor.insertEmbed(range.index, 'image', imageData.url, 'user');
+      
+      // Aplicar dimensiones personalizadas
+      setTimeout(() => {
+        const img = editor.root.querySelector(`img[src="${imageData.url}"]`);
+        if (img) {
+          img.style.width = `${imageData.width}px`;
+          img.style.height = `${imageData.height}px`;
+          // CLAVE: Forzar el object-fit según la opción elegida
+          if (imageData.maintainAspectRatio) {
+            img.style.objectFit = 'contain';
+          } else {
+            img.style.objectFit = 'fill';
+          }
+          // Asegurar que no haya max-width/max-height que interfieran
+          img.style.maxWidth = 'none';
+          img.style.maxHeight = 'none';
+        }
+      }, 100);
+      
+      editor.setSelection(range.index + 1, 0);
+    }
   };
 
   useEffect(() => {
@@ -349,14 +596,16 @@ const alignImageRight = () => {
                   <div className="flex flex-col space-y-4">
                    
                     <div className="flex items-center space-x-2 relative"> 
-                      <Upload type="image" setProgress={setProgress} setData={setImg}>
-                        <button type="button" className="p-2 shadow-md rounded-xl text-sm text-gray-500 bg-gray-50 hover:bg-gray-100 transition duration-300 flex items-center">
+                        <button 
+                          type="button" 
+                          onClick={() => setShowImageModal(true)}
+                          className="p-2 shadow-md rounded-xl text-sm text-gray-500 bg-gray-50 hover:bg-gray-100 transition duration-300 flex items-center"
+                        >
                           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                           </svg>
-                          Insertar Imagen
+                          Insertar imagen
                         </button>
-                      </Upload>
 
                       {/* Botones de alineación de imagen */}
                       <div className="ml-2 flex items-center space-x-1">
@@ -475,6 +724,14 @@ const alignImageRight = () => {
           <Footer />
         </div>
         
+        <ImageResizeModal
+          isOpen={showImageModal}
+          onClose={() => setShowImageModal(false)}
+          onInsert={handleInsertResizedImage}
+          uploadedImage={uploadedImageForResize}
+          setUploadedImage={setUploadedImageForResize}
+        />
+
         <style jsx>{`
           .shadow-inner-bottom {
             box-shadow: 0 -4px 6px -1px rgba(0, 0, 0, 0.1);
