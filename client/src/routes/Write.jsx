@@ -12,24 +12,48 @@ import Footer from "../components/Footer"
 import Picker from 'emoji-picker-react'; 
 import Confetti from "../components/Confetti" 
 
-const ImageResizeModal = ({ isOpen, onClose, onInsert, uploadedImage, setUploadedImage }) => {
+const ImageResizeModal = ({ isOpen, onClose, onInsert, uploadToImageKit, modalImageData, modalProgress }) => {
   const [width, setWidth] = useState('');
   const [height, setHeight] = useState('');
   const [maintainAspectRatio, setMaintainAspectRatio] = useState(true);
   const [aspectRatio, setAspectRatio] = useState(null);
+  const [localImagePreview, setLocalImagePreview] = useState(null);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [waitingForUpload, setWaitingForUpload] = useState(false);
+  const dimensionsRef = useRef({ width: 0, height: 0 });
   const fileInputRef = useRef(null);
 
+  // useEffect para cargar dimensiones iniciales
   useEffect(() => {
-    if (uploadedImage) {
+    if (localImagePreview) {
       const img = new Image();
       img.onload = () => {
-        setAspectRatio(img.width / img.height);
+        const ratio = img.width / img.height;
+        setAspectRatio(ratio);
         setWidth(img.width.toString());
         setHeight(img.height.toString());
       };
-      img.src = uploadedImage;
+      img.src = localImagePreview;
     }
-  }, [uploadedImage]);
+  }, [localImagePreview]);
+
+  // useEffect para detectar cuando se completó el upload
+  useEffect(() => {
+    if (waitingForUpload && modalImageData && modalImageData.url) {
+      console.log('Imagen recibida de ImageKit:', modalImageData);
+      
+      onInsert({
+        url: modalImageData.url,
+        width: dimensionsRef.current.width,
+        height: dimensionsRef.current.height
+      });
+      
+      toast.success('¡Imagen subida exitosamente!');
+      setWaitingForUpload(false);
+      handleClose();
+    }
+  }, [modalImageData, waitingForUpload]);
 
   const handleWidthChange = (e) => {
     const newWidth = e.target.value;
@@ -54,22 +78,63 @@ const ImageResizeModal = ({ isOpen, onClose, onInsert, uploadedImage, setUploade
   const handleFileSelect = (e) => {
     const file = e.target.files?.[0];
     if (file && file.type.startsWith('image/')) {
+      setSelectedFile(file);
       const reader = new FileReader();
       reader.onload = (event) => {
-        setUploadedImage(event.target.result);
+        setLocalImagePreview(event.target.result);
       };
       reader.readAsDataURL(file);
     }
   };
 
-  const handleInsert = () => {
-    if (uploadedImage && width && height) {
-      onInsert({
-        url: uploadedImage,
-        width: parseInt(width),
-        height: parseInt(height)
-      });
-      handleClose();
+  const handleInsert = async () => {
+    if (localImagePreview && width && height && selectedFile && !isUploading) {
+      try {
+        setIsUploading(true);
+        setWaitingForUpload(true);
+        
+        dimensionsRef.current = {
+          width: parseInt(width),
+          height: parseInt(height)
+        };
+        
+        toast.info('Redimensionando imagen...');
+        
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        const img = new Image();
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = reject;
+          img.src = localImagePreview;
+        });
+        
+        canvas.width = dimensionsRef.current.width;
+        canvas.height = dimensionsRef.current.height;
+        ctx.drawImage(img, 0, 0, dimensionsRef.current.width, dimensionsRef.current.height);
+        
+        const resizedBlob = await new Promise((resolve) => {
+          canvas.toBlob((blob) => {
+            resolve(blob);
+          }, selectedFile.type || 'image/jpeg', 0.95);
+        });
+        
+        const resizedFile = new File(
+          [resizedBlob], 
+          selectedFile.name, 
+          { type: selectedFile.type || 'image/jpeg' }
+        );
+        
+        //toast.info('Subiendo a ImageKit...');
+        await uploadToImageKit(resizedFile);
+        
+      } catch (error) {
+        console.error('Error:', error);
+        toast.error('Error: ' + error.message);
+        setIsUploading(false);
+        setWaitingForUpload(false);
+      }
     }
   };
 
@@ -78,7 +143,11 @@ const ImageResizeModal = ({ isOpen, onClose, onInsert, uploadedImage, setUploade
     setHeight('');
     setMaintainAspectRatio(true);
     setAspectRatio(null);
-    setUploadedImage(null);
+    setLocalImagePreview(null);
+    setSelectedFile(null);
+    setIsUploading(false);
+    setWaitingForUpload(false);
+    dimensionsRef.current = { width: 0, height: 0 };
     onClose();
   };
 
@@ -97,7 +166,7 @@ const ImageResizeModal = ({ isOpen, onClose, onInsert, uploadedImage, setUploade
         </div>
 
         <div className="p-6 space-y-6">
-          {!uploadedImage ? (
+          {!localImagePreview ? (
             <div 
               onClick={() => fileInputRef.current?.click()}
               className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-all"
@@ -115,7 +184,7 @@ const ImageResizeModal = ({ isOpen, onClose, onInsert, uploadedImage, setUploade
                 <label className="block text-sm font-medium text-gray-700">Vista Previa</label>
                 <div className="border rounded-lg p-4 bg-gray-50 flex justify-center">
                   <img
-                    src={uploadedImage}
+                    src={localImagePreview}
                     alt="Preview"
                     style={{
                       maxWidth: '100%',
@@ -192,13 +261,13 @@ const ImageResizeModal = ({ isOpen, onClose, onInsert, uploadedImage, setUploade
                           if (preset.width && aspectRatio) {
                             setWidth(preset.width.toString());
                             setHeight(Math.round(preset.width / aspectRatio).toString());
-                          } else if (!preset.width) {
+                          } else if (!preset.width && localImagePreview) {
                             const img = new Image();
                             img.onload = () => {
                               setWidth(img.width.toString());
                               setHeight(img.height.toString());
                             };
-                            img.src = uploadedImage;
+                            img.src = localImagePreview;
                           }
                         }}
                         className="px-3 py-1 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
@@ -219,10 +288,10 @@ const ImageResizeModal = ({ isOpen, onClose, onInsert, uploadedImage, setUploade
           </button>
           <button
             onClick={handleInsert}
-            disabled={!uploadedImage || !width || !height}
+            disabled={!localImagePreview || !width || !height || isUploading}
             className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
           >
-            Insertar Imagen
+            {isUploading ? `Subiendo... ${modalProgress}%` : 'Insertar Imagen'}
           </button>
         </div>
       </div>
@@ -245,27 +314,79 @@ const Write = () => {
   const [category, setCategory] = useState(''); 
   const confetti = Confetti(); 
   const [showImageModal, setShowImageModal] = useState(false);
-  const [uploadedImageForResize, setUploadedImageForResize] = useState(null);
+  const uploadRef = useRef(null);
+  const [modalProgress, setModalProgress] = useState(0);
+  const [modalImageData, setModalImageData] = useState(null);
 
-  // Añadir esta consulta para obtener las categorías
-const {
-  data: categoriesData,
-  error: categoriesError,
-  status: categoriesStatus,
-} = useQuery({
-  queryKey: ['categories'],
-  queryFn: async () => {
-    const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/categories`);
-    return res.data;
-  },
-});
+  // Consulta para obtener las categorías
+  const {
+    data: categoriesData,
+    error: categoriesError,
+    status: categoriesStatus,
+  } = useQuery({
+    queryKey: ['categories'],
+    queryFn: async () => {
+      const res = await axios.get(`${import.meta.env.VITE_API_URL}/api/categories`);
+      return res.data;
+    },
+  });
 
-// Establecer la categoría por defecto cuando se cargan las categorías
-useEffect(() => {
-  if (categoriesData && categoriesData.length > 0 && !category) {
-    setCategory(categoriesData[0].slug);
-  }
-}, [categoriesData, category]);
+  // Establecer la categoría por defecto cuando se cargan las categorías
+  useEffect(() => {
+    if (categoriesData && categoriesData.length > 0 && !category) {
+      setCategory(categoriesData[0].slug);
+    }
+  }, [categoriesData, category]);
+
+  // Funcion para subir a ImageKit
+  const uploadToImageKit = (file) => {
+    return new Promise((resolve, reject) => {
+      // Resetear estados
+      setModalProgress(0);
+      setModalImageData(null);
+
+      // Crear un input temporal
+      const tempInput = document.createElement('input');
+      tempInput.type = 'file';
+      tempInput.style.display = 'none';
+      document.body.appendChild(tempInput);
+
+      // Crear DataTransfer
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(file);
+      tempInput.files = dataTransfer.files;
+
+      // Configurar timeout
+      const timeoutId = setTimeout(() => {
+        document.body.removeChild(tempInput);
+        setModalImageData(null);
+        reject(new Error('Tiempo de espera agotado'));
+      }, 60000);
+
+      // Esperar a que modalImageData se actualice
+      const checkInterval = setInterval(() => {
+        // Este check se hará desde el useEffect
+      }, 100);
+
+      // Guardar referencias para limpiar
+      tempInput.dataset.timeoutId = timeoutId;
+      tempInput.dataset.checkInterval = checkInterval;
+      tempInput.dataset.resolve = 'pending';
+
+      // Trigger del upload mediante el ref
+      const uploadInput = uploadRef.current?.querySelector('input[type="file"]');
+      if (uploadInput) {
+        uploadInput.files = dataTransfer.files;
+        const event = new Event('change', { bubbles: true });
+        uploadInput.dispatchEvent(event);
+      } else {
+        clearTimeout(timeoutId);
+        clearInterval(checkInterval);
+        document.body.removeChild(tempInput);
+        reject(new Error('Upload input not found'));
+      }
+    });
+  };
 
   // Quill modules configuration
   const modules = {
@@ -294,13 +415,7 @@ useEffect(() => {
         if (img) {
           img.style.width = `${imageData.width}px`;
           img.style.height = `${imageData.height}px`;
-          // CLAVE: Forzar el object-fit según la opción elegida
-          if (imageData.maintainAspectRatio) {
-            img.style.objectFit = 'contain';
-          } else {
-            img.style.objectFit = 'fill';
-          }
-          // Asegurar que no haya max-width/max-height que interfieran
+          img.style.objectFit = 'contain';
           img.style.maxWidth = 'none';
           img.style.maxHeight = 'none';
         }
@@ -311,19 +426,11 @@ useEffect(() => {
   };
 
   useEffect(() => {
-    if (img && img.url) {
-      const editor = quillRef.current?.getEditor();
-      if (editor) {
-        const range = editor.getSelection(true); 
-        editor.insertEmbed(range.index, 'image', img.url, 'user'); 
-  
-        // No aplicamos alineación automática para permitir al usuario elegir
-        editor.setSelection(range.index + 1, 0); 
-      } else {
-        setValue(prev => prev + `<p><img src="${img.url}" alt="Imagen insertada"/></p>`);
-      }
+    if (modalImageData && modalImageData.url) {
+      // Esto se llamará cuando Upload llame a setModalImageData
+      console.log('Imagen subida a ImageKit:', modalImageData);
     }
-  }, [img])
+  }, [modalImageData]);
 
   useEffect(() =>{
     if (video && video.url) {
@@ -368,7 +475,6 @@ useEffect(() => {
     );
   };
 
-
   if(isLoaded && !isSignedIn){
     return (
       <div className="text-center py-20 text-red-500">
@@ -378,14 +484,11 @@ useEffect(() => {
     );
   };
 
-  // Función para manejar el envío del formulario
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    // Capturar la posición del clic ahora, antes de las operaciones asíncronas
     const clickPosition = { x: e.clientX, y: e.clientY };
     
-    // Validaciones
     if (!title.trim()) {
       toast.error("Por favor, añade un título");
       return;
@@ -396,7 +499,6 @@ useEffect(() => {
       return;
     }
 
-    // Crear el post
     const newPost = {
       title,
       desc,
@@ -404,7 +506,6 @@ useEffect(() => {
       category: category, 
     };
     
-    // Añadir la imagen solo si existe
     if (cover && cover.url) {
       newPost.img = cover.url;
     }
@@ -412,14 +513,12 @@ useEffect(() => {
     try {
       await mutation.mutateAsync(newPost);
       toast.success("¡Artículo publicado con éxito!");
-      // Pasar un parámetro de estado para indicar que se debe mostrar el confeti
       navigate("/user-articles", { state: { showConfetti: true } });
     } catch (err) {
       console.error("Error al publicar:", err);
     }
   };
 
-  // Function to handle emoji selection
   const onEmojiClick = (emojiObject) => {
     if (quillRef.current) {
       const editor = quillRef.current.getEditor();
@@ -430,68 +529,72 @@ useEffect(() => {
     }
   };
 
-  // Funciones para alinear imágenes
-const alignImageLeft = () => {
-  const editor = quillRef.current?.getEditor();
-  if (editor) {
-    const range = editor.getSelection();
-    if (range) {
-      // Buscar el bloque que contiene la posición actual
-      const [block] = editor.getLine(range.index);
-      // Verificar si el bloque contiene una imagen
-      if (block && block.domNode.querySelector('img')) {
-        // Obtener el índice del bloque
-        const blockIndex = editor.getIndex(block);
-        // Aplicar alineación izquierda
-        editor.formatLine(blockIndex, 1, 'align', 'left');
+  const alignImageLeft = () => {
+    const editor = quillRef.current?.getEditor();
+    if (editor) {
+      const range = editor.getSelection();
+      if (range) {
+        const [block] = editor.getLine(range.index);
+        if (block && block.domNode.querySelector('img')) {
+          const blockIndex = editor.getIndex(block);
+          editor.formatLine(blockIndex, 1, 'align', 'left');
+        }
       }
     }
-  }
-};
+  };
 
-const alignImageCenter = () => {
-  const editor = quillRef.current?.getEditor();
-  if (editor) {
-    const range = editor.getSelection();
-    if (range) {
-      const [block] = editor.getLine(range.index);
-      if (block && block.domNode.querySelector('img')) {
-        const blockIndex = editor.getIndex(block);
-        editor.formatLine(blockIndex, 1, 'align', 'center');
+  const alignImageCenter = () => {
+    const editor = quillRef.current?.getEditor();
+    if (editor) {
+      const range = editor.getSelection();
+      if (range) {
+        const [block] = editor.getLine(range.index);
+        if (block && block.domNode.querySelector('img')) {
+          const blockIndex = editor.getIndex(block);
+          editor.formatLine(blockIndex, 1, 'align', 'center');
+        }
       }
     }
-  }
-};
+  };
 
-const alignImageRight = () => {
-  const editor = quillRef.current?.getEditor();
-  if (editor) {
-    const range = editor.getSelection();
-    if (range) {
-      const [block] = editor.getLine(range.index);
-      if (block && block.domNode.querySelector('img')) {
-        const blockIndex = editor.getIndex(block);
-        editor.formatLine(blockIndex, 1, 'align', 'right');
+  const alignImageRight = () => {
+    const editor = quillRef.current?.getEditor();
+    if (editor) {
+      const range = editor.getSelection();
+      if (range) {
+        const [block] = editor.getLine(range.index);
+        if (block && block.domNode.querySelector('img')) {
+          const blockIndex = editor.getIndex(block);
+          editor.formatLine(blockIndex, 1, 'align', 'right');
+        }
       }
     }
-  }
-};
-
+  };
 
   return (
     <HelmetProvider>
       <div className="min-h-screen flex flex-col">
-        {confetti.component /* Renderizamos el componente de confeti */}
+        {confetti.component}
         <Helmet>
           <title>Crear Nuevo Artículo | Hospital Infantil de Las Californias</title>
           <meta name="description" content="Crea un nuevo artículo para el blog del Hospital Infantil de Las Californias" />
         </Helmet>
         
+        {/* Upload oculto para el modal de redimensionar */}
+        <div ref={uploadRef} style={{ display: 'none' }}>
+          <Upload 
+            type="image" 
+            setProgress={setModalProgress} 
+            setData={setModalImageData}
+          >
+            <div></div>
+          </Upload>
+        </div>
 
         <div className="relative flex-grow -mx-4 md:-mx-8 lg:-mx-16 xl:-mx-32 2xl:-mx-64 px-4 md:px-8 lg:px-16 xl:px-32 2xl:px-64 py-8 bg-[#eff6ff]">
           <div className="absolute top-[-5px] left-0 right-0 h-1 shadow-top-bottom"></div>
           <div className="max-w-5xl mx-auto"> 
-     
+    
             <div className="mb-8 mt-6 pt-8 text-center"> 
               <h1 className="text-4xl font-bold text-gray-800 mb-4">Crear Nuevo Artículo</h1>
               <div className="text-sm text-gray-600 mb-2">
@@ -499,14 +602,12 @@ const alignImageRight = () => {
               </div>
             </div>
 
-  
             <div> 
               <form onSubmit={handleSubmit} className="space-y-6">
             
                 <div className="bg-white p-6 rounded-lg shadow-sm">
                   <h2 className="text-xl font-bold text-gray-800 mb-4">Información Principal</h2>
                   
-          
                   <div className="mb-6">
                     <label className="block text-sm font-medium mb-2 text-gray-600">Imagen de Portada</label>
                     <Upload type="image" setProgress={setProgress} setData={setCover}>
@@ -535,7 +636,6 @@ const alignImageRight = () => {
                     )}
                   </div>
                   
-      
                   <div className="mb-6">
                     <label htmlFor="title" className="block text-sm font-medium mb-2 text-gray-600">Título del Artículo</label>
                     <input 
@@ -573,7 +673,6 @@ const alignImageRight = () => {
                     </select>
                   </div>
                   
-                 
                   <div className="mb-6">
                     <label htmlFor="desc" className="block text-sm font-medium mb-2 text-gray-600">Descripción Corta</label>
                     <textarea 
@@ -589,12 +688,11 @@ const alignImageRight = () => {
                   </div>
                 </div>
                 
-            
                 <div className="bg-white p-6 rounded-lg shadow-sm">
                   <h2 className="text-xl font-bold text-gray-800 mb-4">Contenido del Artículo</h2>
                   
                   <div className="flex flex-col space-y-4">
-                   
+                  
                     <div className="flex items-center space-x-2 relative"> 
                         <button 
                           type="button" 
@@ -607,7 +705,6 @@ const alignImageRight = () => {
                           Insertar imagen
                         </button>
 
-                      {/* Botones de alineación de imagen */}
                       <div className="ml-2 flex items-center space-x-1">
                         <span className="text-xs text-gray-500">Alinear:</span>
                         <button 
@@ -642,8 +739,6 @@ const alignImageRight = () => {
                         </button>
                       </div>
               
-
-             
                       <button 
                         type="button" 
                         onClick={() => setShowEmojiPicker(prev => !prev)}
@@ -655,7 +750,6 @@ const alignImageRight = () => {
                         Emoji
                       </button>
 
-             
                       {showEmojiPicker && (
                         <div className="absolute z-10 mt-2" style={{ top: '100%', left: '100px' }}> 
                           <Picker onEmojiClick={onEmojiClick} />
@@ -682,7 +776,6 @@ const alignImageRight = () => {
                   </div>
                 </div>
                 
-          
                 <div className="flex justify-end">
                   <button
                     type="submit"
@@ -710,7 +803,6 @@ const alignImageRight = () => {
                   </div>
                 )}
                 
-        
                 {progress > 0 && progress < 100 && (
                   <div className="text-sm text-gray-500 mt-2">Progreso de subida: {progress}%</div>
                 )}
@@ -726,10 +818,15 @@ const alignImageRight = () => {
         
         <ImageResizeModal
           isOpen={showImageModal}
-          onClose={() => setShowImageModal(false)}
+          onClose={() => {
+            setShowImageModal(false);
+            setModalImageData(null);
+            setModalProgress(0);
+          }}
           onInsert={handleInsertResizedImage}
-          uploadedImage={uploadedImageForResize}
-          setUploadedImage={setUploadedImageForResize}
+          uploadToImageKit={uploadToImageKit}
+          modalImageData={modalImageData}
+          modalProgress={modalProgress}
         />
 
         <style jsx>{`
@@ -742,7 +839,7 @@ const alignImageRight = () => {
         `}</style>
       </div>
     </HelmetProvider>
-  )
+  );
 }
 
-export default Write;
+export default Write
