@@ -14,6 +14,293 @@ import Picker from 'emoji-picker-react'
 // Descomenta esta importación
 import { useQueryClient } from "@tanstack/react-query";
 
+const ImageResizeModal = ({ isOpen, onClose, onInsert, uploadToImageKit, modalImageData, modalProgress }) => {
+  const [width, setWidth] = useState('');
+  const [height, setHeight] = useState('');
+  const [maintainAspectRatio, setMaintainAspectRatio] = useState(true);
+  const [aspectRatio, setAspectRatio] = useState(null);
+  const [localImagePreview, setLocalImagePreview] = useState(null);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [waitingForUpload, setWaitingForUpload] = useState(false);
+  const dimensionsRef = useRef({ width: 0, height: 0 });
+  const fileInputRef = useRef(null);
+
+  // useEffect para cargar dimensiones iniciales
+  useEffect(() => {
+    if (localImagePreview) {
+      const img = new Image();
+      img.onload = () => {
+        const ratio = img.width / img.height;
+        setAspectRatio(ratio);
+        setWidth(img.width.toString());
+        setHeight(img.height.toString());
+      };
+      img.src = localImagePreview;
+    }
+  }, [localImagePreview]);
+
+  // useEffect para detectar cuando se completó el upload
+  useEffect(() => {
+    if (waitingForUpload && modalImageData && modalImageData.url) {
+      console.log('Imagen recibida de ImageKit:', modalImageData);
+      
+      onInsert({
+        url: modalImageData.url,
+        width: dimensionsRef.current.width,
+        height: dimensionsRef.current.height
+      });
+      
+      toast.success('¡Imagen subida exitosamente!');
+      setWaitingForUpload(false);
+      handleClose();
+    }
+  }, [modalImageData, waitingForUpload]);
+
+  const handleWidthChange = (e) => {
+    const newWidth = e.target.value;
+    setWidth(newWidth);
+    
+    if (maintainAspectRatio && aspectRatio && newWidth) {
+      const calculatedHeight = Math.round(newWidth / aspectRatio);
+      setHeight(calculatedHeight.toString());
+    }
+  };
+
+  const handleHeightChange = (e) => {
+    const newHeight = e.target.value;
+    setHeight(newHeight);
+    
+    if (maintainAspectRatio && aspectRatio && newHeight) {
+      const calculatedWidth = Math.round(newHeight * aspectRatio);
+      setWidth(calculatedWidth.toString());
+    }
+  };
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (file && file.type.startsWith('image/')) {
+      setSelectedFile(file);
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setLocalImagePreview(event.target.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleInsert = async () => {
+    if (localImagePreview && width && height && selectedFile && !isUploading) {
+      try {
+        setIsUploading(true);
+        setWaitingForUpload(true);
+        
+        dimensionsRef.current = {
+          width: parseInt(width),
+          height: parseInt(height)
+        };
+        
+        toast.info('Redimensionando imagen...');
+        
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        const img = new Image();
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = reject;
+          img.src = localImagePreview;
+        });
+        
+        canvas.width = dimensionsRef.current.width;
+        canvas.height = dimensionsRef.current.height;
+        ctx.drawImage(img, 0, 0, dimensionsRef.current.width, dimensionsRef.current.height);
+        
+        const resizedBlob = await new Promise((resolve) => {
+          canvas.toBlob((blob) => {
+            resolve(blob);
+          }, selectedFile.type || 'image/jpeg', 0.95);
+        });
+        
+        const resizedFile = new File(
+          [resizedBlob], 
+          selectedFile.name, 
+          { type: selectedFile.type || 'image/jpeg' }
+        );
+        
+        //toast.info('Subiendo a ImageKit...');
+        await uploadToImageKit(resizedFile);
+        
+      } catch (error) {
+        console.error('Error:', error);
+        toast.error('Error: ' + error.message);
+        setIsUploading(false);
+        setWaitingForUpload(false);
+      }
+    }
+  };
+
+  const handleClose = () => {
+    setWidth('');
+    setHeight('');
+    setMaintainAspectRatio(true);
+    setAspectRatio(null);
+    setLocalImagePreview(null);
+    setSelectedFile(null);
+    setIsUploading(false);
+    setWaitingForUpload(false);
+    dimensionsRef.current = { width: 0, height: 0 };
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between p-6 border-b">
+          <h2 className="text-2xl font-bold text-gray-800">Insertar y redimensionar imagen</h2>
+          <button onClick={handleClose} className="text-gray-500 hover:text-gray-700 transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="p-6 space-y-6">
+          {!localImagePreview ? (
+            <div 
+              onClick={() => fileInputRef.current?.click()}
+              className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-all"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto mb-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+              <p className="text-gray-600 mb-2">Haz clic para seleccionar una imagen</p>
+              <p className="text-sm text-gray-500">JPG, PNG, GIF hasta 10MB</p>
+              <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileSelect} className="hidden" />
+            </div>
+          ) : (
+            <>
+              <div className="space-y-3">
+                <label className="block text-sm font-medium text-gray-700">Vista Previa</label>
+                <div className="border rounded-lg p-4 bg-gray-50 flex justify-center">
+                  <img
+                    src={localImagePreview}
+                    alt="Preview"
+                    style={{
+                      maxWidth: '100%',
+                      maxHeight: '300px',
+                      width: width ? `${width}px` : 'auto',
+                      height: height ? `${height}px` : 'auto',
+                      objectFit: maintainAspectRatio ? 'contain' : 'fill'
+                    }}
+                    className="rounded"
+                  />
+                </div>
+                <button onClick={() => fileInputRef.current?.click()} className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-2">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  Cambiar imagen
+                </button>
+                <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileSelect} className="hidden" />
+              </div>
+
+              <div className="space-y-4">
+                <label className="block text-sm font-medium text-gray-700">Dimensiones (píxeles)</label>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">Ancho</label>
+                    <input
+                      type="number"
+                      value={width}
+                      onChange={handleWidthChange}
+                      placeholder="Ancho"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      min="1"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 mb-1">Alto</label>
+                    <input
+                      type="number"
+                      value={height}
+                      onChange={handleHeightChange}
+                      placeholder="Alto"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      min="1"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="aspectRatio"
+                    checked={maintainAspectRatio}
+                    onChange={(e) => setMaintainAspectRatio(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  />
+                  <label htmlFor="aspectRatio" className="text-sm text-gray-700">
+                    Mantener proporción de aspecto
+                  </label>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-xs text-gray-600">Tamaños preestablecidos</label>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { label: 'Pequeño', width: 300 },
+                      { label: 'Mediano', width: 600 },
+                      { label: 'Grande', width: 900 },
+                      { label: 'Original', width: null }
+                    ].map((preset) => (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => {
+                          if (preset.width && aspectRatio) {
+                            setWidth(preset.width.toString());
+                            setHeight(Math.round(preset.width / aspectRatio).toString());
+                          } else if (!preset.width && localImagePreview) {
+                            const img = new Image();
+                            img.onload = () => {
+                              setWidth(img.width.toString());
+                              setHeight(img.height.toString());
+                            };
+                            img.src = localImagePreview;
+                          }
+                        }}
+                        className="px-3 py-1 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-3 p-6 border-t bg-gray-50">
+          <button onClick={handleClose} className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors">
+            Cancelar
+          </button>
+          <button
+            onClick={handleInsert}
+            disabled={!localImagePreview || !width || !height || isUploading}
+            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+          >
+            {isUploading ? `Subiendo... ${modalProgress}%` : 'Insertar Imagen'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const EditPost = () => {
   // Añade esta línea para inicializar queryClient
   const queryClient = useQueryClient();
@@ -30,6 +317,10 @@ const EditPost = () => {
   const [desc, setDesc] = useState('');
   const quillRef = useRef(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showImageModal, setShowImageModal] = useState(false);
+  const uploadRef = useRef(null);
+  const [modalProgress, setModalProgress] = useState(0);
+  const [modalImageData, setModalImageData] = useState(null);
   const navigate = useNavigate();
   const { getToken } = useAuth();
   const location = useLocation();
@@ -143,6 +434,85 @@ const EditPost = () => {
     }
   }, [post?.content, quillRef.current]);
 
+    // Funcion para subir a ImageKit
+  const uploadToImageKit = (file) => {
+    return new Promise((resolve, reject) => {
+      // Resetear estados
+      setModalProgress(0);
+      setModalImageData(null);
+
+      // Crear un input temporal
+      const tempInput = document.createElement('input');
+      tempInput.type = 'file';
+      tempInput.style.display = 'none';
+      document.body.appendChild(tempInput);
+
+      // Crear DataTransfer
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(file);
+      tempInput.files = dataTransfer.files;
+
+      // Configurar timeout
+      const timeoutId = setTimeout(() => {
+        document.body.removeChild(tempInput);
+        setModalImageData(null);
+        reject(new Error('Tiempo de espera agotado'));
+      }, 60000);
+
+      // Esperar a que modalImageData se actualice
+      const checkInterval = setInterval(() => {
+        // Este check se hará desde el useEffect
+      }, 100);
+
+      // Guardar referencias para limpiar
+      tempInput.dataset.timeoutId = timeoutId;
+      tempInput.dataset.checkInterval = checkInterval;
+      tempInput.dataset.resolve = 'pending';
+
+      // Trigger del upload mediante el ref
+      const uploadInput = uploadRef.current?.querySelector('input[type="file"]');
+      if (uploadInput) {
+        uploadInput.files = dataTransfer.files;
+        const event = new Event('change', { bubbles: true });
+        uploadInput.dispatchEvent(event);
+      } else {
+        clearTimeout(timeoutId);
+        clearInterval(checkInterval);
+        document.body.removeChild(tempInput);
+        reject(new Error('Upload input not found'));
+      }
+    });
+  };
+
+  const handleInsertResizedImage = (imageData) => {
+    const editor = quillRef.current?.getEditor();
+    if (editor) {
+      const range = editor.getSelection(true);
+      editor.insertEmbed(range.index, 'image', imageData.url, 'user');
+      
+      // Aplicar dimensiones personalizadas
+      setTimeout(() => {
+        const img = editor.root.querySelector(`img[src="${imageData.url}"]`);
+        if (img) {
+          img.style.width = `${imageData.width}px`;
+          img.style.height = `${imageData.height}px`;
+          img.style.objectFit = 'contain';
+          img.style.maxWidth = 'none';
+          img.style.maxHeight = 'none';
+        }
+      }, 100);
+      
+      editor.setSelection(range.index + 1, 0);
+    }
+  };
+
+  useEffect(() => {
+    if (modalImageData && modalImageData.url) {
+      // Esto se llamará cuando Upload llame a setModalImageData
+      console.log('Imagen subida a ImageKit:', modalImageData);
+    }
+  }, [modalImageData]);
+
   useEffect(() => {
     // Si un usuario no está autenticado, redirigir a la página de inicio de sesión
     if (isLoaded && !isSignedIn) {
@@ -244,6 +614,48 @@ const EditPost = () => {
     mutation.mutate(data);
   };
 
+  const alignImageLeft = () => {
+    const editor = quillRef.current?.getEditor();
+    if (editor) {
+      const range = editor.getSelection();
+      if (range) {
+        const [block] = editor.getLine(range.index);
+        if (block && block.domNode.querySelector('img')) {
+          const blockIndex = editor.getIndex(block);
+          editor.formatLine(blockIndex, 1, 'align', 'left');
+        }
+      }
+    }
+  };
+
+  const alignImageCenter = () => {
+    const editor = quillRef.current?.getEditor();
+    if (editor) {
+      const range = editor.getSelection();
+      if (range) {
+        const [block] = editor.getLine(range.index);
+        if (block && block.domNode.querySelector('img')) {
+          const blockIndex = editor.getIndex(block);
+          editor.formatLine(blockIndex, 1, 'align', 'center');
+        }
+      }
+    }
+  };
+
+  const alignImageRight = () => {
+    const editor = quillRef.current?.getEditor();
+    if (editor) {
+      const range = editor.getSelection();
+      if (range) {
+        const [block] = editor.getLine(range.index);
+        if (block && block.domNode.querySelector('img')) {
+          const blockIndex = editor.getIndex(block);
+          editor.formatLine(blockIndex, 1, 'align', 'right');
+        }
+      }
+    }
+  };
+
   // Mostrar spinner de carga mientras se cargan los datos del usuario
   if (!isLoaded) {
     return (
@@ -299,6 +711,17 @@ const EditPost = () => {
           <title>Editar Artículo | Blog</title>
           <meta name="description" content="Edita tu artículo del blog" />
         </Helmet>
+
+        {/* Upload oculto para el modal de redimensionar */}
+        <div ref={uploadRef} style={{ display: 'none' }}>
+          <Upload 
+            type="image" 
+            setProgress={setModalProgress} 
+            setData={setModalImageData}
+          >
+            <div></div>
+          </Upload>
+        </div>
 
         {/* Main content area with background color */}
         <div className="relative flex-grow -mx-4 md:-mx-8 lg:-mx-16 xl:-mx-32 2xl:-mx-64 px-4 md:px-8 lg:px-16 xl:px-32 2xl:px-64 py-8 bg-[#eff6ff]">
@@ -410,15 +833,51 @@ const EditPost = () => {
                   <div className="flex flex-col space-y-4">
                     {/* Action buttons: Image, Video, Emoji */}
                     <div className="flex items-center space-x-2 relative"> 
-                      <Upload type="image" setProgress={setProgress} setData={setImg}>
-                        <button type="button" className="p-2 shadow-md rounded-xl text-sm text-gray-500 bg-gray-50 hover:bg-gray-100 transition duration-300 flex items-center">
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                          </svg>
-                          Insertar Imagen
-                        </button>
-                      </Upload>
-                      
+                      <button 
+                        type="button" 
+                        onClick={() => setShowImageModal(true)}
+                        className="p-2 shadow-md rounded-xl text-sm text-gray-500 bg-gray-50 hover:bg-gray-100 transition duration-300 flex items-center"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        Insertar imagen
+                      </button>
+
+                    <div className="ml-2 flex items-center space-x-1">
+                      <span className="text-xs text-gray-500">Alinear:</span>
+                      <button 
+                        type="button" 
+                        onClick={alignImageLeft}
+                        className="p-1 shadow-md rounded-xl text-sm text-gray-500 bg-gray-50 hover:bg-gray-100 transition duration-300"
+                        title="Alinear a la izquierda"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h10M4 18h16" />
+                        </svg>
+                      </button>
+                      <button 
+                        type="button" 
+                        onClick={alignImageCenter}
+                        className="p-1 shadow-md rounded-xl text-sm text-gray-500 bg-gray-50 hover:bg-gray-100 transition duration-300"
+                        title="Centrar"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M7 12h10M4 18h16" />
+                        </svg>
+                      </button>
+                      <button 
+                        type="button" 
+                        onClick={alignImageRight}
+                        className="p-1 shadow-md rounded-xl text-sm text-gray-500 bg-gray-50 hover:bg-gray-100 transition duration-300"
+                        title="Alinear a la derecha"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M10 12h10M4 18h16" />
+                        </svg>
+                      </button>
+                    </div>
+
                       {/* Emoji Button */}
                       <button 
                         type="button" 
@@ -502,6 +961,19 @@ const EditPost = () => {
           <Footer />
         </div>
         
+        <ImageResizeModal
+          isOpen={showImageModal}
+          onClose={() => {
+            setShowImageModal(false);
+            setModalImageData(null);
+            setModalProgress(0);
+          }}
+          onInsert={handleInsertResizedImage}
+          uploadToImageKit={uploadToImageKit}
+          modalImageData={modalImageData}
+          modalProgress={modalProgress}
+        />
+
         <style jsx>{`
           .shadow-inner-bottom {
             box-shadow: 0 -4px 6px -1px rgba(0, 0, 0, 0.1);
